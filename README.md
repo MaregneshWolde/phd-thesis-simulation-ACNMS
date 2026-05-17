@@ -2,14 +2,14 @@ Project Data Repository: constrained sequential Gaussian simulation on raw data 
 
 This repository contains the datasets and pre-computed simulation matrices required to reproduce the visualization and validation workflow for conditional sequential Gaussian simulation (cSGS) and biharmonic trend analysis. 
 
-To maintain a clean structural lineage between raw inputs and processed outputs, the assets are divided into two main directories: 'Data/' and 'Data_simulation/'.
+To maintain a clean structural lineage between raw inputs and processed outputs, the assets are divided into two main directories: "Data/" and "Data_simulation/".
 
 
 
 "Data/" (Observed and Raw Data)
 This directory contains the foundational spatial data, raw wells, and regional boundary definitions used to construct the study area and ground-truth the models.
 
-'GrunnvannsBorehull.xlsx': Raw Norwegian well database containing structural metadata.
+"GrunnvannsBorehull.xlsx": Raw Norwegian well database containing structural metadata.
     - Sheet "GrunnvannBrnn": Water borehole extraction data.
     - Sheet "EnergiBrnn": Energy borehole extraction data.
 "exposed_bedrock.txt": 2D array grid representing the presence of exposed bedrock in the study domain.
@@ -18,7 +18,7 @@ This directory contains the foundational spatial data, raw wells, and regional b
 
 
 
-'Data_simulation/' (Simulation Assets)
+"Data_simulation/" (Simulation Assets)
 This directory contains the compiled '.npy' matrices generated from the computationally intensive simulation runs. These pre-computed assets allow users to quickly reproduce the visualizations without needing to re-run the entire geostatistical model.
 
 
