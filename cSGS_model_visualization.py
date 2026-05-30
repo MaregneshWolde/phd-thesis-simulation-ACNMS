@@ -2,12 +2,12 @@
 Visualization and validation workflow for conditional sequential Gaussian simulation (cSGS)
 and biharmonic trend analysis.
 
-Author: Maregnesh Wolde
-Contributors: Samson S. B., Andreas K., Christian F., Nils-Otto K.
+Author: Maregnesh-Mechal Wolde
 Date: May 2026
-
 This script reproduces the visualization and validation results presented in:
-[Paper 2 citation or DOI placeholder]
+"Mathematical Modelling of Sediment Thickness and Bedrock Topography Using the Biharmonic Equation and Sequential Gaussian Simulation"
+
+
 
 Requirements:
     numpy
@@ -17,9 +17,6 @@ Requirements:
     openpyxl
 """
 
-#!/usr/bin/env python
-# coding: utf-8
-
 from pathlib import Path
 import matplotlib.pyplot as plt
 import matplotlib as mpl
@@ -27,6 +24,9 @@ import numpy as np
 import pandas as pd
 from scipy.interpolate import griddata
 from scipy.spatial import cKDTree
+from scipy.stats import gaussian_kde
+import sys
+import os
 
 # ============================================================
 # 1. GLOBAL CONFIGURATIONS & PLOTTING STYLES
@@ -267,25 +267,28 @@ D_nadag = D_nadag1[mask_keep]
 
 
 
-
 print("Load model grid asset matrices")
 try:
-    X_locBdInReg = np.load(base1 / 'X_locBdB.npy')
+    X_locBdInReg = np.load(base1 / 'X_exposedBig.npy')             # Points in exposed bedrock region to be excluded
     moved_observations = np.load(base1 / 'moved_observations.npy', allow_pickle=True)
-    IndAllDis = np.load(base1 / 'IndAllDis.npy')
-    U_b = np.load(base1 / 'biharmonicSol.npy')
-    Ubstd = np.load(base1 / 'Ub_std.npy')
-    poinsBh1 = np.load(base1 / 'points4biharmonicsol.npy')
-    simulated_fieldsR = np.load(base1 / '100cSGS_S_T.npy')  # Residual fields
-    simulated_fields = np.load(base1 / '100cSGS_S_R.npy')   # Raw fields
-    A_matOk = np.load(base1 / 'A_matOk_P2.npy')
-    A_matCV_atX_locNew = np.load(base1 / 'A_matCV_atX_locNew.npy')
-    A_matCV = np.load(base1 / 'A_matCV.npy')
-    A_matOk_inequality = np.load(base1 / 'A_matOk_inequality.npy')
+    IndAllDis = np.load(base1 / 'IndAllDis.npy')                   # Indices of displacement for biharmonic trend
+    U_b = np.load(base1 / 'biharmonicSol.npy')                     # Biharmonic mean trend
+    Ubstd = np.load(base1 / 'Ub_std.npy')                           # Uncertainty of mean trend
+    poinsBh1 = np.load(base1 / 'points4biharmonicsol.npy')         # Nodal points of biharmonic trend
+    simulated_fieldsR = np.load(base1 / '100cSGS_S_T.npy')         # Residual fields
+    simulated_fields = np.load(base1 / '100cSGS_S_R.npy')          # Raw fields
+    A_matCV = np.load(base1 / 'A_mat1_TBT_R.npy')                  # 100 realizations of PDE_cSGS at NADAG points
+    A_matOk = np.load(base1 / 'A_mat1_R.npy')                      # 100 realizations of cSGS on raw data at NADAG points
+    A_matCV_atX_locNew = np.load(base1 / 'A_matCV_atX_locNew.npy') # 100 realizations of PDE_cSGS at inequality well points
+    A_matOk_inequality = np.load(base1 / 'A_matOk_inequality.npy') # 100 realizations of cSGS on raw data at inequality points
+    X_locBdB = np.load(base1 / 'X_locBdB.npy')                     # Irregular domain boundary points
+    D_rAll     = np.load(base1 / 'Ue.npy')                         # Residuals at all points
+    Ubval      = np.load(base1 / 'Uval.npy')                       # Trend values at observation points
 except FileNotFoundError as e:
     raise FileNotFoundError(
         f"Missing tracking file asset: {e.filename}. Ensure execution matches local data directory paths."
     )
+
 # Map Trend Profiles
 U_trend = U_b[IndAllDis]
 Ub_std1 = Ubstd[IndAllDis]
@@ -498,5 +501,430 @@ for z_field, title, label in [(Z_reg, "Interpolation to Regular Grid", "Values")
     plt.show()
 
 
+dxm, dym = 15, 15
+
+xg = np.arange(xmin, xmax + dxm, dxm)
+yg = np.arange(ymin, ymax + dym, dym)
+
+XI, YI = np.meshgrid(xg, yg)
+
+
+grid_points = np.column_stack((XI.ravel(), YI.ravel())) 
+
+# ============================================================
+# Points on exposed region
+# ============================================================
+
+
+
+X_locBdBCrossval = X_locBdInReg
+
+plt.scatter(X_locBdBCrossval[:, 0], X_locBdBCrossval[:, 1])
+
+plt.scatter(X_locNew[:,0], X_locNew[:,1], c=D_obs, cmap='viridis', s=30)
+plt.colorbar(label='D_obs')
+plt.title('Sample Data Points')
+plt.xlabel('X Coordinate')
+plt.ylabel('Y Coordinate')
+plt.show()
+
+IndAll  = np.arange(len(X_locNew))
+IndWell = np.setdiff1d(IndAll, IndSed)
+
+# ============================================================
+# Build NaN observation vector
+# ============================================================
+
+Z_nan = np.full(len(X_locNew), np.nan)
+Z_nan[IndSed] = D_obs[IndSed]
+
+
+
+n_bd = len(X_locBdB) #Irregular boundary points
+zeros_bd = np.zeros(n_bd)
+
+Z_nanAll       = np.hstack([Z_nan, zeros_bd])
+Z_observationAll = np.hstack([D_obs, zeros_bd])
+
+locationsErr   = np.vstack([X_locNew, X_locBdB])
+
+
+D_obsErr       = np.hstack([D_rAll, zeros_bd])
+
+
+# Same as Z_observationAll (kept for compatibility)
+D_obsbdB = Z_observationAll.copy()
+
+
+def Variogram_model(distances, c0, sill, range_, alpha):
+    """
+    Generalized Exponential Semivariogram Model.
+    
+    """
+    distances = np.asarray(distances)
+    b = -np.log(20)  # Scaling factor for 95% sill at the specified range
+    
+    partial_sill = sill - c0
+    
+    # Standard semivariogram formula: Nugget + Partial_Sill * (1 - Exp)
+    gamma = c0 + partial_sill * (1.0 - np.exp(b * (distances / range_)**alpha))
+    
+    # Force exact 0 at absolute 0 distance
+    return np.where(distances < 1e-12, 0.0, gamma)
+
+
+
+
+
+
+#=============================================================================
+#Validation of the stored results
+#=============================================================================
+
+
+
+
+A_mat1_FR = A_matOk
+
+
+A_mat1_FT = A_matCV
+
+valuesCV = A_mat1_FT.flatten()
+valuesOK = A_mat1_FR.flatten()
+
+# Compute KDE
+kde = gaussian_kde(valuesCV)
+
+# Create a range of x values for smooth KDE plot
+x_vals = np.linspace(valuesCV.min(), valuesCV.max(), 200)
+kde_vals = kde(x_vals)
+
+# Plot histogram
+plt.figure(figsize=(12, 8))
+plt.hist(valuesCV , bins=20, density=True, alpha=0.5, color='skyblue', label='Histogram (normalized)')
+
+# Plot KDE
+plt.plot(x_vals, kde_vals, color='darkblue', lw=2, label='KDE')
+
+#plt.title('P-score Histogram with KDE')
+plt.xlabel('Sediment Thickness')
+plt.ylabel('Density')
+#plt.legend()
+plt.show()
+
+
+
+# Compute KDE
+kde = gaussian_kde(valuesOK)
+
+# Create a range of x values for smooth KDE plot
+x_vals = np.linspace(valuesOK.min(), valuesOK.max(), 200)
+kde_vals = kde(x_vals)
+
+# Plot histogram
+plt.figure(figsize=(12, 8))
+plt.hist(valuesOK , bins=20, density=True, alpha=0.5, color='skyblue', label='Histogram (normalized)')
+
+# Plot KDE
+plt.plot(x_vals, kde_vals, color='darkblue', lw=2, label='KDE')
+
+#plt.title('P-score Histogram with KDE')
+plt.xlabel('Sediment Thickness')
+plt.ylabel('Density')
+#plt.legend()
+plt.show()
+
+
+def compute_mae(predicted, observed):
+    predicted = np.asarray(predicted)
+    observed = np.asarray(observed)
+    return np.mean(np.abs(predicted - observed))
+
+
+observed = np.array(D_nadag)
+mean_per_well_NadagCV = np.mean(A_mat1_FT, axis=0)
+mean_per_well_NadagOK = np.mean(A_mat1_FR, axis=0)
+mae_CV = compute_mae(mean_per_well_NadagCV, observed)
+mae_OK = compute_mae(mean_per_well_NadagOK, observed)
+
+def compute_p_scores(U_matrix, d_obs):
+    """
+    Compute empirical P-scores (CDF values) at observed data points.
+
+    Parameters:
+    - U_matrix: shape (n_realizations, n_wells)
+    - d_obs: shape (n_wells,)
+
+    Returns:
+    - p_scores: shape (n_wells,)
+    """
+    indicator = (U_matrix <= d_obs[None, :]).astype(int)
+    p_scores = np.mean(indicator, axis=0)
+    return p_scores
+
+P_scoreCv = compute_p_scores(A_mat1_FT, observed)
+P_scoreOK = compute_p_scores(A_mat1_FR, observed)
+plt.hist(P_scoreCv, bins=10, range=(0,1), edgecolor='k', alpha=0.7)
+
+
+plt.xlabel("P-score")
+plt.ylabel("Frequency")
+plt.title("Histogram P-score")
+plt.grid(True)
+plt.show()
+
+plt.hist(P_scoreOK, bins=10, range=(0,1), edgecolor='k', alpha=0.7)
+
+
+plt.xlabel("P-score")
+plt.ylabel("Frequency")
+plt.title("Histogram P-score")
+plt.grid(True)
+plt.show()
+
+
+
+
+fig, axes = plt.subplots(1, 2, figsize=(16, 6), dpi=300)
+
+colors = plt.cm.viridis(np.linspace(0, 1, len(D_nadag)))
+
+# ===================== (a) OK =====================
+ax = axes[0]
+
+for i in range(len(D_nadag)):
+    Y_1 = A_matOk[:, i]
+    Y_1_sorted = np.sort(Y_1)
+    Y_1_sorted[Y_1_sorted < 0] = 0
+
+    D_exact = D_nadag[i]
+    closest_index = np.argmin(np.abs(Y_1_sorted - D_exact))
+
+    median = np.median(Y_1_sorted)
+    median_index = np.argmin(np.abs(Y_1_sorted - median))
+
+    Y = np.linspace(0, 1, len(Y_1_sorted))
+
+    ax.plot(Y_1_sorted, Y, color=colors[i], alpha=0.7)
+
+    ax.scatter(Y_1_sorted[closest_index], Y[closest_index],
+               color="blue", marker='o', edgecolor='black',
+               label="Nadag observed" if i == 0 else "")
+
+# median line
+median_y = Y[median_index]
+ax.axhline(y=median_y, color="m", linestyle="--",
+           label="Median of SGS realizations on raw data")
+
+ax.text(0.05, 0.95, "(a)", fontsize=20, transform=ax.transAxes)
+
+ax.set_xlabel("Simulated sediment thickness [m]")
+ax.set_ylabel("Cumulative probability")
+ax.legend(loc="lower right")
+ax.grid(True)
+
+# ===================== (b) CV =====================
+ax = axes[1]
+
+for i in range(len(D_nadag)):
+    Y_1 = A_matCV[:, i]
+    Y_1_sorted = np.sort(Y_1)
+
+    D_exact = D_nadag[i]
+    closest_index = np.argmin(np.abs(Y_1_sorted - D_exact))
+
+    median = np.median(Y_1_sorted)
+    median_index = np.argmin(np.abs(Y_1_sorted - median))
+
+    Y = np.linspace(0, 1, len(Y_1_sorted))
+
+    ax.plot(Y_1_sorted, Y, color=colors[i], alpha=0.7)
+
+    ax.scatter(Y_1_sorted[closest_index], Y[closest_index],
+               color="blue", marker='o', edgecolor='black',
+               label="Nadag observed" if i == 0 else "")
+
+ax.set_xlim(0, 25)
+
+median_y = Y[median_index]
+ax.axhline(y=median_y, color="m", linestyle="--",
+           label="Median of cSGS realizations on residual")
+
+ax.text(0.05, 0.95, "(b)", fontsize=20, transform=ax.transAxes)
+
+ax.set_xlabel("Simulated sediment thickness [m]")
+ax.set_ylabel("Cumulative probability")
+ax.legend(loc="lower right")
+ax.grid(True)
+
+
+plt.tight_layout()
+plt.show()
+
+
+
+# ==============================================================================
+# HOW TO RUN THE SIMULATION:
+# If you want to test or run this source code, simply execute the script below.
+# Make sure your data files (like bedrock, grid points, and well data) are 
+# loaded in your workspace before running.
+# ==============================================================================
+
+
+
+# Dynamically force Python to look in the directory of this current script
+script_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in locals() else os.getcwd()
+if script_dir not in sys.path:
+    sys.path.append(script_dir)
+
+# Direct import to allow proper execution updates
+from csgs_simulation import Run_M_cSGS_on_residual_with_SedimentTrend, Run_M_cSGS_on_rawSediment
+
+M_realizations = 1  # Use 1, 3, or 100
+
+
+
+# ==============================================================================
+# 1. RUN SIMULATION: RESIDUAL WITH BIHARMONIC TREND
+# ==============================================================================
+print(f"\n--- Initializing fresh run of {M_realizations} cSGS on residual with trend ---")
+
+fresh_fields_f = Run_M_cSGS_on_residual_with_SedimentTrend(
+    data_points=locationsErr,          # Conditioning coordinate footprints (obs + boundary points)
+    Z_observation=D_obsErr,            # Residual trend measurements 
+    grid_points=grid_points,           # The full regularized mesh grid evaluation points
+    poinsBh1=poinsBh1,                 # Biharmonic trend grid inputs
+    U_bdis1=U_trend,                   # Discrete biharmonic trend mean arrays
+    Ub_std1=Ub_std1,                   # Discretized trend uncertainty variances
+    Variogram_model=Variogram_model,   # Mathematical variogram solver function
+    Z_observationAll=Z_observationAll, # Complete merged observation (observation and boundary values)
+    Z_nan=Z_nanAll,                    # Raw well depth mapping trackers (Z_nanAll)
+    Nugget=0.67,                       # Variogram constraints fitted nugget value
+    Sill=2.15,                         # Variogram fitted sill
+    Range=738.37,                      # Spatial range distance cap
+    alpha=1.89,                        # Variogram exponent shape parameter
+    dx=dxm,                            # Horizontal regular matrix grid cell spacing steps
+    dy=dym,                            # Vertical regular matrix grid cell spacing steps
+    X_expAllInGigDom=X_locBdBCrossval, # Exposed bedrock region to be excluded
+    n_realizations=M_realizations      # Number of iterations to process (M)tukkkkkkjioopoø
+)
+
+print(" Fresh simulation on the residual run successfully finished. ")
+
+
+# ==============================================================================
+# 2. RUN SIMULATION: RAW SEDIMENT DATA
+# ==============================================================================
+print(f"\n--- Initializing fresh run of {M_realizations} cSGS on raw sediment data ---")
+
+# Note: X_locNew is safely removed from this call signature as it's no longer 
+# needed due to the padded Z_nanAll array alignment.
+fresh_fields_rawData = Run_M_cSGS_on_rawSediment(
+    data_points=locationsErr,          # Conditioning coordinate footprints (obs + boundary points)
+    Z_observation=D_obsbdB,            # Raw sediment thickness measurements 
+    grid_points=grid_points,           # The full regularized mesh grid evaluation points
+    Variogram_model=Variogram_model,   # Mathematical variogram solver function
+    Z_observationAll=Z_observationAll, # Complete merged observation (observation and boundary values)
+    Z_nan=Z_nanAll,                    # Raw well depth mapping trackers (Z_nanAll)
+    Nugget=1.38,                       # Variogram constraints fitted nugget value
+    Sill=6.09,                         # Variogram fitted sill
+    Range=190.93,                      # Spatial range distance cap
+    alpha=1.89,                        # Variogram exponent shape parameter
+    dx=dxm,                            # Horizontal regular matrix grid cell spacing steps
+    dy=dym,                            # Vertical regular matrix grid cell spacing steps
+    X_expAllInGigDom=X_locBdBCrossval, # Exposed bedrock region to be excluded
+    n_realizations=M_realizations      # Number of iterations to process (M)
+)
+
+print(" Fresh simulation on raw data run successfully finished ")
+
+
+simulated_fields_FT = fresh_fields_f
+n_realizations = len(simulated_fields_FT)
+
+# FIXED INITIALIZATION 
+Zsum_R = np.zeros((n, m))  
+ZArray = []  # Cleaned up the typo and trailing code here
+
+for i in range(n_realizations):
+    Zsim_vec2 = np.array(simulated_fields_FT[i])
+    ZArray.append(Zsim_vec2[:, 2])
+    
+    # Sort coordinate path vectors to safely match the structured array layout orientation
+    Zsim_vec2_sorted = Zsim_vec2[np.lexsort((Zsim_vec2[:, 0], Zsim_vec2[:, 1]))]
+
+    Xm = Zsim_vec2_sorted[:, 0].reshape((n, m))
+    Ym = Zsim_vec2_sorted[:, 1].reshape((n, m))
+    Zmn = Zsim_vec2_sorted[:, 2].reshape((n, m))
+    
+    Zsum_R += Zmn  # Accumulate values
+
+# Calculate average profile over all processed simulations
+Zsum_R /= n_realizations  
+
+
+# ==============================================================================
+# 4. PLOT MEAN REALIZATION MAP MATRIX
+# ==============================================================================
+plt.figure(figsize=(12, 8))
+plt.imshow(Zsum_R, origin='lower', extent=[minX, maxX, minY, maxY], cmap='viridis')
+plt.colorbar(label='Sediment Thickness [m]')
+plt.title('Mean Stochastic Realization Grid Estimation Map')
+plt.xlabel('X Coordinate')
+plt.ylabel('Y Coordinate')
+plt.show()
+
+
+
+
+
+
+# ==============================================================================
+# 5. COMPUTE MEAN REALIZATION
+# ==============================================================================
+# Switch between 'fresh_fields_rawData' or 'fresh_fields_f' depending on what we want to plot
+
+simulated_fields_FR =  fresh_fields_rawData
+n_realizations = len(simulated_fields_FR)
+
+# PRE-PASS INITIALIZATION: Sort and extract dimensions from the first realization 
+# to calculate 'n' and 'm' dynamically before initializing Zsum.
+sample_field = np.array(simulated_fields_FR[0])
+sample_sorted = sample_field[np.lexsort((sample_field[:, 0], sample_field[:, 1]))]
+unique_x = np.unique(sample_sorted[:, 0])
+unique_y = np.unique(sample_sorted[:, 1])
+n, m = len(unique_y), len(unique_x)  # Dynamically extracts row and column boundaries
+
+# Initialize tracking variables safely with correct matrix dimensions
+Zsum = np.zeros((n, m))  
+ZArray = []
+
+for i in range(n_realizations):
+    Zsim_vec2 = np.array(simulated_fields_FR[i])
+    ZArray.append(Zsim_vec2[:, 2])
+    
+    # Sort coordinate path vectors to safely match the structured array layout orientation
+    Zsim_vec2_sorted = Zsim_vec2[np.lexsort((Zsim_vec2[:, 0], Zsim_vec2[:, 1]))]
+
+    Xm = Zsim_vec2_sorted[:, 0].reshape((n, m))
+    Ym = Zsim_vec2_sorted[:, 1].reshape((n, m))
+    Zmn = Zsim_vec2_sorted[:, 2].reshape((n, m))
+    
+    Zsum += Zmn  # Accumulate values
+
+# Calculate average profile over all processed simulations
+Zsum /= n_realizations  
+
+
+# ==============================================================================
+# 6. PLOT MEAN REALIZATION MAP MATRIX
+# ==============================================================================
+plt.figure(figsize=(12, 8))
+plt.imshow(Zsum, origin='lower', extent=[minX, maxX, minY, maxY], cmap='viridis')
+plt.colorbar(label='Sediment Thickness [m]')
+plt.title('Mean Stochastic Realization Grid Estimation Map')
+plt.xlabel('X Coordinate')
+plt.ylabel('Y Coordinate')
+plt.show()
 
 

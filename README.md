@@ -1,3 +1,31 @@
+
+# GMD-Biharmonic-cSGS-Surface
+
+This repository contains the official Python source code and data assets for the numerical simulation and visualization workflows presented in the manuscript:
+
+ "Mathematical Modelling of Sediment Thickness and Bedrock Topography Using the Biharmonic Equation and Sequential Gaussian Simulation"
+
+As a complement to the article, we provide the Python source code covering the computational steps of "Algorithm 1: Constrained sequential Gaussian simulation (cSGS)", alongside the complete datasets and pre-computed simulation matrices required to reproduce the visualization and validation workflows.
+
+
+
+## Requirements & Dependencies
+
+To run these codes and visualization scripts, you need a standard Python installation (Python 3.8 or higher recommended) with the following scientific computing packages:
+
+1. "NumPy" (>= 1.20.0)  For array manipulation and file handling ('.npy').
+2. "SciPy" (>= 1.7.0)  For spatial data structures ('cKDTree'), grid interpolation ('exposed region griddata'), and matrix operations.
+3. "Pandas"  For loading the well database Excel files ('.xlsx').
+4. "Matplotlib"  For generating the final model visualization plots.
+
+
+
+You can install all dependencies at once using pip:
+bash
+pip install numpy scipy
+
+
+
 Project Data Repository: constrained sequential Gaussian simulation on raw data and Biharmonic Trend Analysis
 
 This repository contains the datasets and pre-computed simulation matrices required to reproduce the visualization and validation workflow for conditional sequential Gaussian simulation (cSGS) and biharmonic trend analysis. 
