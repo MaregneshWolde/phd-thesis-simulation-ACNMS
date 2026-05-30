@@ -86,3 +86,23 @@ Future Updates
 Additional documentation, detailed setup instructions, and workflow refinements may be added in future repository updates as needed.
 
 
+##  Citation / Journal Reference
+
+If you use this code, data assets, or the modeling framework in your research, please cite the permanent Zenodo archive:
+
+> Wolde, M. (2026). GMD-Biharmonic-cSGS-Surface: Initial Release for GMD Submission (v1.0.0). Zenodo. https://doi.org/10.5281/zenodo.2045937
+
+## BibTeX Format
+bibtex
+@software{wolde_2026_2045937,
+  author       = {Wolde, Maregnesh},
+  title        = {GMD-Biharmonic-cSGS-Surface: Initial Release for GMD Submission},
+  month        = may,
+  year         = 2026,
+  publisher    = {Zenodo},
+  version      = {v1.0.0},
+  doi          = {10.5281/zenodo.2045937},
+  url          = {[https://doi.org/10.5281/zenodo.2045937](https://doi.org/10.5281/zenodo.2045937)}
+}
+
+
